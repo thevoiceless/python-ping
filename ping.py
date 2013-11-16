@@ -17,7 +17,7 @@ def main():
 	# Try to resolve the IP of the host
 	try:
 		hostInfo = socket.getaddrinfo(hostname, 80)
-	except socket.gaierror as e:
+	except socket.gaierror, e:
 		print >> sys.stderr, 'Could not resolve hostname', hostname
 		sys.exit(1)
 	else:
