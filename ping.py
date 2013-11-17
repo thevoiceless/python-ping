@@ -14,7 +14,7 @@ import select
 # Type 8, Code 0 is an echo request
 HEADER_MSG_TYPE = 8
 HEADER_MSG_CODE = 0
-# Wait 15 seconds for a response
+# Wait up to 15 seconds for a response
 TIMEOUT = 15
 
 
@@ -44,7 +44,6 @@ def checksum(s):
 	# Swap bytes for some reason
 	result = result >> 8 | (result << 8 & 0xff00)
 
-	print "checksum:", result
 	return result
 
 
@@ -64,18 +63,21 @@ def buildHeader(check, packetID, seq):
 
 
 def ping(hostIP):
-	ttl = 1
-	seq = 1
-	packetID = random.randrange(65535)
+	print "Sending to %s" % hostIP
 
-	# Build dummy ICMP header with no checksum and starting at 1
-	dummyHeader = buildHeader(0, packetID, seq)
+	# We can build the packet once and send it 5 times because nothing changes
+	# The ID probably should, but it doesn't matter here since we wait either
+	# a response or a timeout before sending again
+	packetID = random.randrange(65535)
+	# Build dummy ICMP header with no checksum and sequence number 1
+	dummyHeader = buildHeader(0, packetID, 1)
 	# Checksum is based on the header and the data, but there is no data
 	check = checksum(dummyHeader)
-	# Build the actual header, which is really the whole packet
-	packet = buildHeader(check, packetID, seq)
+	# Build the actual header (which is really the whole packet)
+	packet = buildHeader(check, packetID, 1)
 
-	# Send the packet
+	# Create the socket
+	# NOTE: This requires superuser privileges
 	try:
 		# The correct protocol is chosen automatically for normal socket modes,
 		# but we specify the ICMP protocol since we're opening a raw socket
@@ -86,34 +88,57 @@ def ping(hostIP):
 		print >> sys.stderr, "Error creating ICMP socket:", msg
 		exit(errno)
 
-	while packet:
-		# The sendto() function expects an address tuple that specifies a
-		# port, but ICMP doesn't use a port so just tell it 1
-		sentBytes = sock.sendto(packet, (hostIP, 1))
-		packet = packet[sentBytes:]
+	# Send the packet 5 times
+	numReceived = 0
+	minTime = sys.maxint
+	maxTime = -1
+	totalTime = 0.0
+	for i in range(5):
+		sendPacket = packet
+		while sendPacket:
+			# The sendto() function expects an address tuple that specifies a
+			# port, but ICMP doesn't use a port so just tell it 1
+			sentBytes = sock.sendto(sendPacket, (hostIP, 1))
+			sendPacket = sendPacket[sentBytes:]
 
-	# Wait up to TIMEOUT seconds for response
-	timeSent = time.time()
-	# The first three parameters to the select() function are, in this order,
-	# lists of objects to:
-	#   1. Wait on until ready to read from
-	#   2. Wait on until ready to write to
-	#   3. Wait on until an "exception condition occurs"
-	# The last parameter is an optional timeout value in seconds
-	response = select.select([sock], [], [], TIMEOUT)
-	timeReceived = time.time()
-	elapsedTime = timeReceived - timeSent
-	# Empty lists are returned if the timeout was reached
-	if response[0] == []:
-		print "Timed out"
+		# Wait up to TIMEOUT seconds for response
+		timeSent = time.time()
+		# The first three parameters to the select() function are, in this order,
+		# lists of objects to:
+		#   1. Wait on until ready to read from
+		#   2. Wait on until ready to write to
+		#   3. Wait on until an "exception condition occurs"
+		# The last parameter is an optional timeout value in seconds
+		response = select.select([sock], [], [], TIMEOUT)
+		timeReceived = time.time()
+		elapsedTime = timeReceived - timeSent
+		# Empty lists are returned if the timeout was reached
+		if response[0] == []:
+			print "Packet %i timed out" % (i + 1)
+			continue
+
+		data, addr = sock.recvfrom(1024)
+		# Skip over the 20-byte IP header to get the 8-byte ICMP header
+		header = data[20:28]
+		pType, pCode, pCheck, pID, pSeq = struct.unpack('bbHHh', header)
+		# Not sure if checking the ID is necessary, but we do it anyway
+		if pID == packetID:
+			numReceived += 1
+			if elapsedTime > maxTime:
+				maxTime = elapsedTime
+			if elapsedTime < minTime:
+				minTime = elapsedTime
+			totalTime += elapsedTime
+
+	# Stop here if we didn't get any responses
+	if numReceived == 0:
+		print "Got no responses"
 		return
-
-	data, addr = sock.recvfrom(1024)
-	# Skip over the IP header to the ICMP header
-	header = data[20:28]
-	pType, pCode, pCheck, pID, pSeq = struct.unpack('bbHHh', header)
-	if pID == packetID:
-		print "Time:", elapsedTime * 1000
+	# Otherwise, report stats
+	minTime *= 1000
+	maxTime *= 1000
+	avgTime = (totalTime / numReceived) * 1000
+	print "Min: %.2f ms\nMax: %.2f ms\nAverage: %.2f ms" % (minTime, maxTime, avgTime)
 
 
 def main():
@@ -134,8 +159,6 @@ def main():
 		sys.exit(1)
 
 	hostIP = hostInfo[0][4][0]
-	print hostIP
-
 	ping(hostIP)
 
 
