@@ -2,13 +2,7 @@
 
 # NOTE: This was written to work with Python 2.4
 
-import optparse
-import socket
-import sys
-import random
-import struct
-import time
-import select
+import optparse, socket, sys, random, struct, time, select
 
 
 # Type 8, Code 0 is an echo request
@@ -62,8 +56,8 @@ def buildHeader(check, packetID, seq):
 	return header
 
 
-def ping(hostIP):
-	print "Sending to %s" % hostIP
+def pingFiveTimes(hostIP):
+	print "Ping %s five times..." % hostIP
 
 	# We can build the packet once and send it 5 times because nothing changes
 	# The ID probably should, but it doesn't matter here since we wait either
@@ -86,7 +80,7 @@ def ping(hostIP):
 			socket.getprotobyname('icmp'))
 	except socket.error, (errno, msg):
 		print >> sys.stderr, "Error creating ICMP socket:", msg
-		exit(errno)
+		sys.exit(errno)
 
 	# Send the packet 5 times
 	numReceived = 0
@@ -98,10 +92,10 @@ def ping(hostIP):
 		while sendPacket:
 			# The sendto() function expects an address tuple that specifies a
 			# port, but ICMP doesn't use a port so just tell it 1
+			# Returns the number of bytes sent
 			sentBytes = sock.sendto(sendPacket, (hostIP, 1))
 			sendPacket = sendPacket[sentBytes:]
 
-		# Wait up to TIMEOUT seconds for response
 		timeSent = time.time()
 		# The first three parameters to the select() function are, in this order,
 		# lists of objects to:
@@ -112,6 +106,9 @@ def ping(hostIP):
 		response = select.select([sock], [], [], TIMEOUT)
 		timeReceived = time.time()
 		elapsedTime = timeReceived - timeSent
+		if elapsedTime == 0:
+			print "Warning: Elapsed time is zero, which may indicate that this \
+			system cannot provide time with a better precision than 1 second"
 		# Empty lists are returned if the timeout was reached
 		if response[0] == []:
 			print "Packet %i timed out" % (i + 1)
@@ -159,7 +156,7 @@ def main():
 		sys.exit(1)
 
 	hostIP = hostInfo[0][4][0]
-	ping(hostIP)
+	pingFiveTimes(hostIP)
 
 
 # __name__ will be '__main__' if this code is being run directly (i.e. 'python dug.py')
