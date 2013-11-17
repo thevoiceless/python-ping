@@ -7,8 +7,8 @@ A simple version of the `ping` utility written in Python. It sends five ICMP ech
 
 Usage (requires superuser privileges):
 -----
-`sudo python ping.py hostname`
-or
+`sudo python ping.py hostname`  
+or  
 `sudo ./ping.py hostname`
 
 Notes
